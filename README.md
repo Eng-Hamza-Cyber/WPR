@@ -36,20 +36,18 @@ Ensure your db.txt file is in the root directory with the filenames you wish to 
 # Usage
 
 ## Run the tool using the following command-line arguments:
-`#Standard scan with default settings
-python wpr.py -t https://example.com
+Standard scan with default setting `python wpr.py -t https://example.com`
 
-#Start scanning from a specific year
-python wpr.py -t https://example.com -s 2018
+Start scanning from a specific year `python wpr.py -t https://example.com -s 2018`
 
-#Increase concurrency for faster results
-python wpr.py -t https://example.com -c 20`
+Increase concurrency for faster results `python wpr.py -t https://example.com -c 20`
+
 
 ## Argument Reference
         Flag,                      Description,                 Default
-    "-t, --target",       Target WordPress URL (Required),       None
-    "-s, --start",        The year to begin scanning from,       2000
-    "-c, --concurrency",  Number of simultaneous requests,         5
+     -t, --target ,       Target WordPress URL (Required),       None
+     -s, --start ,        The year to begin scanning from,       2000
+     -c, --concurrency ,  Number of simultaneous requests,         5
 
 # Output
 Any successfully discovered files or exposed directories are immediately logged to results.txt in the following format:
