@@ -1,84 +1,98 @@
 import asyncio
 import aiohttp
-import random
 import argparse
 import sys
+import socket
+import os
 from datetime import datetime
-
-UA_LIST = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/123.0",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
-]
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-t", "--target", required=True)
-    parser.add_argument("-c", "--concurrency", type=int, default=25)
+    parser.add_argument("-c", "--concurrency", type=int, default=20)
+    parser.add_argument("-s", "--start", type=int, default=2000)
     return parser.parse_args()
 
-def get_wordlist():
-    try:
-        with open("db.txt", "r") as f:
-            return [line.strip() for line in f if line.strip()]
-    except:
-        sys.exit(1)
-
-async def scan(session, sem, url, is_dir=False):
+async def fetch(session, url, sem, is_dir=False):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive"
+    }
     async with sem:
-        headers = {"User-Agent": random.choice(UA_LIST)}
         try:
-            async with session.get(url, headers=headers, ssl=False, allow_redirects=True, timeout=15) as res:
-                if res.status == 429:
-                    await asyncio.sleep(5)
-                    return await scan(session, sem, url, is_dir)
-
-                if res.status == 200:
-                    content = await res.read()
-                    text = content.decode('utf-8', errors='ignore').lower()
-                    
-                    bad_keywords = ["page not found", "404 not found", "nothing found", "oops!", "error 404"]
-                    if any(word in text for word in bad_keywords):
-                        return
-
-                    if is_dir:
-                        if "index of" in text:
-                            print(f"[!] DIR: {url}")
-                            with open("results.txt", "a") as f: f.write(f"[DIR] {url}\n")
-                    else:
-                        ctype = res.headers.get("Content-Type", "").lower()
-                        if "text/html" in ctype and not (url.endswith('.html') or url.endswith('.htm')):
-                            return
+            async with session.get(url, headers=headers, timeout=15, allow_redirects=False) as res:
+                status = res.status
+                if status == 200:
+                    text = await res.text()
+                    if is_dir and ("Index of" in text or "Parent Directory" in text):
+                        print(f"\n\a[!] DIRECTORY LISTING FOUND: {url}")
+                        with open("results.txt", "a") as f:
+                            f.write(f"[DIR] {url}\n")
+                    elif not is_dir:
+                        print(f"\r[*] [200 OK] -> {url}                                ")
+                        with open("results.txt", "a") as f:
+                            f.write(url + "\n")
                         
-                        print(f"[+] FOUND: {url}")
-                        with open("results.txt", "a") as f: f.write(url + "\n")
+                        if any(ext in url.lower() for ext in ['.csv', '.sql', '.log', '.env']):
+                            try:
+                                preview = text[:80].replace('\n', ' ')
+                                print(f"    [PREVIEW] {preview}...")
+                            except:
+                                pass
+                return status
         except:
-            pass
+            return None
 
 async def main():
     args = get_args()
-    words = get_wordlist()
     target = args.target.rstrip('/')
-    curr_year = datetime.now().year
     
-    conn = aiohttp.TCPConnector(limit=args.concurrency, ssl=False)
-    async with aiohttp.ClientSession(connector=conn) as session:
-        sem = asyncio.Semaphore(args.concurrency)
-        tasks = []
+    if not os.path.exists("db.txt"):
+        print("[!] FATAL ERROR: db.txt not found.")
+        sys.exit(1)
+
+    with open("db.txt", "r") as f:
+        words = [line.strip() for line in f if line.strip()]
+    
+    if not words:
+        print("[!] FATAL ERROR: db.txt is empty.")
+        sys.exit(1)
+
+    sem = asyncio.Semaphore(args.concurrency)
+    resolver = aiohttp.ThreadedResolver()
+    connector = aiohttp.TCPConnector(
+        resolver=resolver,
+        family=socket.AF_INET,
+        ssl=False,
+        use_dns_cache=True,
+        limit_per_host=args.concurrency
+    )
+
+    async with aiohttp.ClientSession(connector=connector) as session:
+        current_year = datetime.now().year
         
-        base_path = f"{target}/wp-content/uploads/"
-        for word in words:
-            tasks.append(scan(session, sem, base_path + word))
+        print(f"[*] Target: {target} | Start: {args.start} | Concurrency: {args.concurrency}")
+        
+        root_url = f"{target}/wp-content/uploads/"
+        root_tasks = [fetch(session, root_url, sem, is_dir=True)]
+        root_tasks.extend([fetch(session, f"{root_url}{w.lstrip('/')}", sem) for w in words])
+        await asyncio.gather(*root_tasks)
 
-        for y in range(2000, curr_year + 1):
-            for m in range(1, 13):
-                path = f"{target}/wp-content/uploads/{y}/{m:02d}/"
-                tasks.append(scan(session, sem, path, is_dir=True))
-                for word in words:
-                    tasks.append(scan(session, sem, path + word))
-
-        print(f"[*] Total tasks: {len(tasks)} | Concurrency: {args.concurrency}")
-        await asyncio.gather(*tasks)
+        for y in range(args.start, current_year + 1):
+            print(f"\n[>] Entering Year: {y}")
+            for m in [f"{i:02d}" for i in range(1, 13)]:
+                sys.stdout.write(f"\r    [-] Scanning Month: {m}")
+                sys.stdout.flush()
+                
+                base = f"{target}/wp-content/uploads/{y}/{m}/"
+                month_tasks = [fetch(session, base, sem, is_dir=True)]
+                month_tasks.extend([fetch(session, f"{base}{w.lstrip('/')}", sem) for w in words])
+                
+                await asyncio.gather(*month_tasks)
+        
+    print("\n" + "-" * 50)
+    print("[*] Scan Completed.")
 
 if __name__ == "__main__":
     try:
