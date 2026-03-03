@@ -25,7 +25,7 @@ HTTP/2 Support: Utilizes modern protocol features for improved connection stabil
 
 ## 1.Clone the Repository:
 
-`git clone https://github.com/Eng-Hamza-Cyber/WPR.git`
+`git clone https://github.com/Eng-Hamza-Cyber/wpr.git`
 
 ## 2.Install Dependencies:
 `pip install -r requirements.txt`
