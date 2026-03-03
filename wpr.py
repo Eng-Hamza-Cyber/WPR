@@ -74,15 +74,21 @@ async def main():
     curr_year = datetime.now().year
 
     m_variants = [f"{i:02d}" for i in range(1, 13)] + \
-                  ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+                 ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
     
-    print(f"[*] WPR Started | Target: {target} | From: {args.start}")
+    print(f"[*] WPR Started | Target: {target}")
 
     sem = asyncio.Semaphore(args.concurrency)
     limits = httpx.Limits(max_keepalive_connections=5, max_connections=args.concurrency)
     
     async with httpx.AsyncClient(http2=True, limits=limits, verify=False) as client:
         tasks = []
+        
+        main_uploads = f"{target}/wp-content/uploads/"
+        tasks.append(scan(client, sem, main_uploads, is_dir=True))
+        for file in words:
+            tasks.append(scan(client, sem, main_uploads + file))
+
         for year in range(args.start, curr_year + 1):
             for variant in m_variants:
                 base_url = f"{target}/wp-content/uploads/{year}/{variant}/"
