@@ -9,7 +9,7 @@ def get_args():
     parser = argparse.ArgumentParser(description="WPR - WordPress Reaper")
     parser.add_argument("-t", "--target", help="Target URL", required=True)
     parser.add_argument("-s", "--start", type=int, help="Start year", default=2000)
-    parser.add_argument("-c", "--concurrency", type=int, help="Concurrency", default=5)
+    parser.add_argument("-c", "--concurrency", type=int, help="Concurrency", default=25)
     return parser.parse_args()
 
 def get_wordlist():
@@ -46,16 +46,24 @@ async def scan(client, sem, url, is_dir=False):
         
         headers = {"User-Agent": random.choice(ua_list)}
         try:
-            await asyncio.sleep(random.uniform(0.1, 0.3))
-            
             if is_dir:
                 res = await client.get(url, headers=headers, timeout=10.0, follow_redirects=True)
+                if res.status_code == 429:
+                    await asyncio.sleep(3)
+                    return await scan(client, sem, url, is_dir)
+                
                 if res.status_code == 200 and "Index of" in res.text:
                     print(f"[!] DIRECTORY LISTING EXPOSED: {url}")
                     with open("results.txt", "a") as f:
                         f.write(f"[DIR] {url}\n")
             else:
                 res = await client.head(url, headers=headers, timeout=10.0, follow_redirects=True)
+                
+                if res.status_code == 429:
+                    print("429 Wait For 3 Seconds")
+                    await asyncio.sleep(3)
+                    return await scan(client, sem, url, is_dir)
+                    
                 if res.status_code == 200:
                     ctype = res.headers.get("Content-Type", "").lower()
                     if "text/html" in ctype and not (url.endswith('.html') or url.endswith('.htm')):
@@ -72,32 +80,26 @@ async def main():
     words = get_wordlist()
     target = args.target.rstrip('/')
     curr_year = datetime.now().year
-
     m_variants = [f"{i:02d}" for i in range(1, 13)] + \
                  ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
     
-    print(f"[*] WPR Started | Target: {target}")
-
+    print(f"[*] WPR Speed Mode | Target: {target} | Concurrency: {args.concurrency}")
     sem = asyncio.Semaphore(args.concurrency)
-    limits = httpx.Limits(max_keepalive_connections=5, max_connections=args.concurrency)
+    limits = httpx.Limits(max_keepalive_connections=args.concurrency, max_connections=args.concurrency)
     
-    async with httpx.AsyncClient(http2=True, limits=limits, verify=False) as client:
+    async with httpx.AsyncClient(http2=True, limits=limits, verify=False, timeout=None) as client:
         tasks = []
-        
         main_uploads = f"{target}/wp-content/uploads/"
         tasks.append(scan(client, sem, main_uploads, is_dir=True))
         for file in words:
             tasks.append(scan(client, sem, main_uploads + file))
-
         for year in range(args.start, curr_year + 1):
             for variant in m_variants:
                 base_url = f"{target}/wp-content/uploads/{year}/{variant}/"
                 tasks.append(scan(client, sem, base_url, is_dir=True))
-                
                 for file in words:
                     url = base_url + file
                     tasks.append(scan(client, sem, url))
-        
         await asyncio.gather(*tasks)
     print("[*] Finished.")
 
