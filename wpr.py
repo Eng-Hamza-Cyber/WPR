@@ -8,9 +8,9 @@ from datetime import datetime
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--target", required=True)
+    parser.add_argument("-t", "--target", help="Target URL (e.g., https://example.com)", required=True)
     parser.add_argument("-c", "--concurrency", type=int, default=20)
-    parser.add_argument("-s", "--start", type=int, default=2000)
+    parser.add_argument("-s", "--start", type=int, help="Starting year for the scan (e.g., 2015)", required=True)
     return parser.parse_args()
 
 async def fetch(session, url, sem, is_dir=False):
@@ -72,7 +72,11 @@ async def main():
     async with aiohttp.ClientSession(connector=connector) as session:
         current_year = datetime.now().year
         
-        print(f"[*] Target: {target} | Start: {args.start} | Concurrency: {args.concurrency}")
+        if args.start > current_year:
+            print(f"[!] ERROR: Start year {args.start} cannot be in the future.")
+            sys.exit(1)
+
+        print(f"[*] Target: {target} | Scanning from: {args.start} | Concurrency: {args.concurrency}")
         
         root_url = f"{target}/wp-content/uploads/"
         root_tasks = [fetch(session, root_url, sem, is_dir=True)]
@@ -98,4 +102,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
+        print("\n[!] User Interrupted.")
         sys.exit(0)
