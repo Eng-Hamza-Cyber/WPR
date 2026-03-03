@@ -47,7 +47,7 @@ Increase concurrency for faster results `python wpr.py -t https://example.com -c
         Flag,                      Description,                 Default
      -t, --target ,       Target WordPress URL (Required),       None
      -s, --start ,        The year to begin scanning from,       2000
-     -c, --concurrency ,  Number of simultaneous requests,         25
+     -c, --concurrency ,  Number of simultaneous requests,         20
 
 # Output
 Any successfully discovered files or exposed directories are immediately logged to results.txt in the following format:
